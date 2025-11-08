@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notes Web Application</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="app-wrapper">
+            <h1 class="title">Notes</h1>
+            
+            <!-- Input Section -->
+            <div class="input-section">
+                <textarea 
+                    id="noteInput" 
+                    placeholder="Enter your note here..." 
+                    rows="4"
+                ></textarea>
+                <button id="addNoteBtn" class="add-btn">Add Note</button>
+            </div>
+            
+            <!-- Notes Display Section -->
+            <div class="notes-section">
+                <div id="notesContainer" class="notes-container">
+                    <div id="noNotesMessage" class="no-notes">
+                        No notes yet. Add your first note above!
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Connection Status -->
+            <div class="status-bar">
+                <span id="connectionStatus" class="status offline">Offline</span>
+                <span id="syncStatus" class="sync-status"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Socket.IO and JavaScript -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
