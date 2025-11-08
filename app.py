@@ -21,16 +21,37 @@ class NotesDatabase:
     
     def init_database(self):
         """Initialize the database with notes table"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS notes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    content TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            conn.commit()
+        try:
+            print(f"Initializing database at: {self.db_path}")
+            
+            # Ensure directory exists
+            db_dir = os.path.dirname(self.db_path) or '.'
+            if not os.path.exists(db_dir):
+                os.makedirs(db_dir)
+            
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS notes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        content TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                
+                # Add welcome note if database is empty
+                count = cursor.execute('SELECT COUNT(*) FROM notes').fetchone()[0]
+                if count == 0:
+                    cursor.execute("INSERT INTO notes (content) VALUES ('Welcome to Cloud Notes! 🚀')")
+                    cursor.execute("INSERT INTO notes (content) VALUES ('Your notes are now synced across devices!')")
+                    print("Added welcome notes to empty database")
+                
+                conn.commit()
+                print("Database initialized successfully!")
+                
+        except Exception as e:
+            print(f"Database initialization error: {e}")
+            raise e
     
     def get_all_notes(self):
         """Get all notes from database"""

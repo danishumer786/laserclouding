@@ -15,10 +15,10 @@ class NotesApp:
         self.root = root
         self.root.title("Notes Application (Desktop)")
         self.root.geometry("600x550")
-        self.root.configure(bg="#00BFFF")  # Light blue background
+        self.root.configure(bg="#4CAF50")  # Green background to match web app
         
-        # API Configuration
-        self.api_base_url = "http://localhost:5000"
+        # API Configuration - Updated for cloud deployment
+        self.api_base_url = "https://laserclouding-hva2gweudafvadcw.canadacentral-01.azurewebsites.net"
         self.use_api = True
         self.socket_client = None
         self.update_queue = Queue()
@@ -57,7 +57,7 @@ class NotesApp:
     def create_gui(self):
         """Create the main GUI interface"""
         # Main frame
-        main_frame = tk.Frame(self.root, bg="#00BFFF", padx=20, pady=20)
+        main_frame = tk.Frame(self.root, bg="#4CAF50", padx=20, pady=20)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         # Title
@@ -65,13 +65,13 @@ class NotesApp:
             main_frame,
             text="Notes",
             font=("Arial", 24, "bold"),
-            bg="#00BFFF",
+            bg="#4CAF50",
             fg="white"
         )
         title_label.pack(pady=(0, 20))
         
         # Input frame
-        input_frame = tk.Frame(main_frame, bg="#00BFFF")
+        input_frame = tk.Frame(main_frame, bg="#4CAF50")
         input_frame.pack(fill=tk.X, pady=(0, 20))
         
         # Text input area
@@ -104,13 +104,13 @@ class NotesApp:
         add_button.pack(side=tk.RIGHT, padx=(10, 0))
         
         # Notes display area with scrollbar
-        notes_frame = tk.Frame(main_frame, bg="#00BFFF")
+        notes_frame = tk.Frame(main_frame, bg="#4CAF50")
         notes_frame.pack(fill=tk.BOTH, expand=True)
         
         # Create scrollable frame for notes
-        self.canvas = tk.Canvas(notes_frame, bg="#00BFFF", highlightthickness=0)
+        self.canvas = tk.Canvas(notes_frame, bg="#4CAF50", highlightthickness=0)
         scrollbar = ttk.Scrollbar(notes_frame, orient="vertical", command=self.canvas.yview)
-        self.scrollable_frame = tk.Frame(self.canvas, bg="#00BFFF")
+        self.scrollable_frame = tk.Frame(self.canvas, bg="#4CAF50")
         
         self.scrollable_frame.bind(
             "<Configure>",
@@ -128,13 +128,13 @@ class NotesApp:
         self.root.bind_all("<MouseWheel>", self._on_mousewheel)
         
         # Status bar
-        status_frame = tk.Frame(main_frame, bg="#00BFFF")
+        status_frame = tk.Frame(main_frame, bg="#4CAF50")
         status_frame.pack(fill=tk.X, pady=(10, 0))
         
         self.status_label = tk.Label(
             status_frame,
             text="Connecting to server...",
-            bg="#00BFFF",
+            bg="#4CAF50",
             fg="white",
             font=("Arial", 9)
         )
@@ -143,7 +143,7 @@ class NotesApp:
         self.sync_label = tk.Label(
             status_frame,
             text="",
-            bg="#00BFFF",
+            bg="#4CAF50",
             fg="white",
             font=("Arial", 9)
         )
@@ -376,7 +376,7 @@ class NotesApp:
             no_notes_label = tk.Label(
                 self.scrollable_frame,
                 text="No notes yet. Add your first note above!",
-                bg="#00BFFF",
+                bg="#4CAF50",
                 fg="white",
                 font=("Arial", 12, "italic")
             )
