@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notes Debug Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #FF69B4; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
+        .debug { background: #f0f0f0; padding: 10px; margin: 10px 0; border-radius: 5px; font-family: monospace; }
+        textarea { width: 100%; height: 80px; margin: 10px 0; }
+        button { padding: 10px 20px; background: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        .note { background: #f9f9f9; margin: 10px 0; padding: 10px; border-radius: 5px; }
+        .status { padding: 5px 10px; border-radius: 15px; margin: 5px; display: inline-block; }
+        .online { background: green; color: white; }
+        .offline { background: red; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Notes Debug Test</h1>
+        
+        <div class="debug">
+            <strong>Debug Info:</strong>
+            <div id="debugInfo">Loading...</div>
+        </div>
+        
+        <div>
+            Connection Status: <span id="status" class="status offline">Testing...</span>
+            <span id="syncStatus">Checking connection...</span>
+        </div>
+        
+        <textarea id="noteInput" placeholder="Enter your test note here..."></textarea>
+        <button onclick="addNote()">Add Note (Test)</button>
+        <button onclick="loadNotes()">Refresh Notes</button>
+        
+        <div id="notes">Loading notes...</div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        let socket = null;
+        let isConnected = false;
+        
+        function log(message) {
+            const debugInfo = document.getElementById('debugInfo');
+            const timestamp = new Date().toLocaleTimeString();
+            debugInfo.innerHTML += `<br>[${timestamp}] ${message}`;
+            console.log(message);
+        }
+        
+        async function loadNotes() {
+            try {
+                log('🔄 Loading notes via API...');
+                const response = await fetch('/api/notes');
+                const data = await response.json();
+                
+                if (data.success) {
+                    log(`✅ Loaded ${data.notes.length} notes`);
+                    displayNotes(data.notes);
+                } else {
+                    log(`❌ API Error: ${data.error}`);
+                }
+            } catch (error) {
+                log(`❌ Failed to load notes: ${error.message}`);
+            }
+        }
+        
+        function displayNotes(notes) {
+            const notesDiv = document.getElementById('notes');
+            if (notes.length === 0) {
+                notesDiv.innerHTML = '<div class="note">No notes yet</div>';
+                return;
+            }
+            
+            notesDiv.innerHTML = '';
+            notes.forEach(note => {
+                const noteDiv = document.createElement('div');
+                noteDiv.className = 'note';
+                noteDiv.innerHTML = `
+                    <strong>ID ${note.id}:</strong> ${note.content}
+                    <br><small>Created: ${note.created_at}</small>
+                    <button onclick="deleteNote(${note.id})" style="float: right; background: red; color: white; border: none; padding: 5px;">Delete</button>
+                `;
+                notesDiv.appendChild(noteDiv);
+            });
+        }
+        
+        async function addNote() {
+            const input = document.getElementById('noteInput');
+            const content = input.value.trim();
+            
+            if (!content) {
+                log('⚠️ Please enter some text');
+                return;
+            }
+            
+            try {
+                log(`📝 Adding note: "${content}"`);
+                const response = await fetch('/api/notes', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: content })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    log(`✅ Note added with ID: ${data.note.id}`);
+                    input.value = '';
+                    await loadNotes(); // Refresh the list
+                } else {
+                    log(`❌ Failed to add note: ${data.error}`);
+                }
+            } catch (error) {
+                log(`❌ Error adding note: ${error.message}`);
+            }
+        }
+        
+        async function deleteNote(id) {
+            try {
+                log(`🗑️ Deleting note ID: ${id}`);
+                const response = await fetch(`/api/notes/${id}`, { method: 'DELETE' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    log(`✅ Note ${id} deleted`);
+                    await loadNotes(); // Refresh the list
+                } else {
+                    log(`❌ Failed to delete note: ${data.error}`);
+                }
+            } catch (error) {
+                log(`❌ Error deleting note: ${error.message}`);
+            }
+        }
+        
+        function connectWebSocket() {
+            try {
+                log('🔌 Attempting WebSocket connection...');
+                socket = io();
+                
+                socket.on('connect', () => {
+                    log('✅ WebSocket connected!');
+                    isConnected = true;
+                    updateStatus();
+                });
+                
+                socket.on('disconnect', () => {
+                    log('📡 WebSocket disconnected');
+                    isConnected = false;
+                    updateStatus();
+                });
+                
+                socket.on('connect_error', (error) => {
+                    log(`❌ WebSocket error: ${error}`);
+                    isConnected = false;
+                    updateStatus();
+                });
+                
+                socket.on('note_added', (data) => {
+                    log(`🔔 Real-time: Note added (ID: ${data.id})`);
+                    loadNotes(); // Refresh when we get real-time updates
+                });
+                
+                socket.on('note_deleted', (data) => {
+                    log(`🔔 Real-time: Note deleted (ID: ${data.id})`);
+                    loadNotes(); // Refresh when we get real-time updates
+                });
+                
+            } catch (error) {
+                log(`❌ WebSocket setup failed: ${error}`);
+                updateStatus();
+            }
+        }
+        
+        function updateStatus() {
+            const statusElement = document.getElementById('status');
+            const syncStatusElement = document.getElementById('syncStatus');
+            
+            if (isConnected) {
+                statusElement.textContent = 'Online (WebSocket)';
+                statusElement.className = 'status online';
+                syncStatusElement.textContent = 'Real-time sync active ✓';
+            } else {
+                statusElement.textContent = 'Online (HTTP only)';
+                statusElement.className = 'status online';
+                syncStatusElement.textContent = 'HTTP mode - manual refresh needed';
+            }
+        }
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            log('🚀 Starting debug test...');
+            loadNotes();
+            connectWebSocket();
+            updateStatus();
+        });
+        
+        // Allow Enter key to add note
+        document.getElementById('noteInput').addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'Enter') {
+                addNote();
+            }
+        });
+    </script>
+</body>
+</html>

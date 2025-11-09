@@ -3,14 +3,16 @@ class NotesWebApp {
         this.socket = null;
         this.notes = [];
         this.isConnected = false;
+        this.pollingInterval = null;
         
+        console.log('🚀 Initializing Notes Web App...');
         this.init();
     }
     
     init() {
         this.setupEventListeners();
-        this.connectToServer();
-        this.loadNotes();
+        this.loadNotes(); // Load notes first
+        this.connectToServer(); // Then try WebSocket connection
     }
     
     setupEventListeners() {
@@ -30,62 +32,111 @@ class NotesWebApp {
     
     connectToServer() {
         try {
-            this.socket = io();
+            console.log('Attempting to connect to WebSocket...');
+            
+            // Configure Socket.IO with fallback options
+            this.socket = io({
+                timeout: 10000,
+                transports: ['websocket', 'polling'],
+                reconnection: true,
+                reconnectionAttempts: 3,
+                reconnectionDelay: 2000
+            });
             
             this.socket.on('connect', () => {
-                console.log('Connected to server');
+                console.log('✅ WebSocket connected - real-time sync active!');
                 this.isConnected = true;
-                this.updateConnectionStatus(true);
+                this.updateConnectionStatus(true, 'websocket');
                 this.socket.emit('request_notes');
             });
             
             this.socket.on('disconnect', () => {
-                console.log('Disconnected from server');
+                console.log('📡 WebSocket disconnected');
                 this.isConnected = false;
-                this.updateConnectionStatus(false);
+                this.updateConnectionStatus(false, 'websocket');
+            });
+            
+            this.socket.on('connect_error', (error) => {
+                console.log('⚠️ WebSocket connection failed, using HTTP API mode');
+                console.log('This is normal for Azure App Service without WebSocket enabled');
+                this.isConnected = false;
+                this.updateConnectionStatus(true, 'http'); // Still connected via HTTP
+                
+                // Set up polling for updates since WebSocket failed
+                this.startHttpPolling();
             });
             
             this.socket.on('note_added', (noteData) => {
-                console.log('New note received:', noteData);
+                console.log('🔄 Real-time update: Note added');
                 this.addNoteToDisplay(noteData, false);
                 this.showNotification('New note added!', 'success');
             });
             
             this.socket.on('note_deleted', (data) => {
-                console.log('Note deleted:', data.id);
+                console.log('🗑️ Real-time update: Note deleted');
                 this.removeNoteFromDisplay(data.id);
                 this.showNotification('Note deleted!', 'success');
             });
             
             this.socket.on('notes_update', (data) => {
-                console.log('Notes update received:', data.notes.length, 'notes');
+                console.log('📝 Notes update received:', data.notes.length, 'notes');
                 this.updateNotesDisplay(data.notes);
             });
             
-            this.socket.on('error', (error) => {
-                console.error('Socket error:', error);
-                this.showNotification('Connection error: ' + error.message, 'error');
-            });
-            
         } catch (error) {
-            console.error('Failed to connect to server:', error);
-            this.updateConnectionStatus(false);
+            console.error('❌ WebSocket setup failed:', error);
+            console.log('📡 Falling back to HTTP API mode');
+            this.updateConnectionStatus(true, 'http'); // Fallback to HTTP
+            this.startHttpPolling();
         }
+        
+        // Set initial status as HTTP mode until WebSocket connects
+        setTimeout(() => {
+            if (!this.isConnected) {
+                console.log('⏰ WebSocket connection timeout, using HTTP mode');
+                this.updateConnectionStatus(true, 'http');
+                this.startHttpPolling();
+            }
+        }, 5000);
     }
     
-    updateConnectionStatus(connected) {
+    updateConnectionStatus(connected, mode = 'http') {
         const statusElement = document.getElementById('connectionStatus');
         const syncStatus = document.getElementById('syncStatus');
         
         if (connected) {
-            statusElement.textContent = 'Online';
-            statusElement.className = 'status online';
-            syncStatus.textContent = 'Real-time sync active';
+            if (mode === 'websocket') {
+                statusElement.textContent = 'Online (Real-time)';
+                statusElement.className = 'status online';
+                syncStatus.textContent = 'WebSocket sync active ✓';
+            } else {
+                statusElement.textContent = 'Online (HTTP)';
+                statusElement.className = 'status online';
+                syncStatus.textContent = 'HTTP sync active (refresh for updates)';
+            }
         } else {
             statusElement.textContent = 'Offline';
             statusElement.className = 'status offline';
             syncStatus.textContent = 'Offline mode - changes will sync when reconnected';
         }
+    }
+    
+    startHttpPolling() {
+        // Poll for updates every 30 seconds when WebSocket is not available
+        console.log('🔄 Starting HTTP polling for updates...');
+        if (this.pollingInterval) {
+            clearInterval(this.pollingInterval);
+        }
+        
+        this.pollingInterval = setInterval(async () => {
+            if (!this.isConnected) {
+                try {
+                    await this.loadNotes();
+                } catch (error) {
+                    console.log('Polling failed:', error);
+                }
+            }
+        }, 30000);
     }
     
     async loadNotes() {
@@ -316,5 +367,17 @@ document.head.appendChild(style);
 // Initialize the app when page loads
 let app;
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('📄 DOM loaded, starting Notes Web App...');
     app = new NotesWebApp();
 });
+
+// Fallback initialization if DOMContentLoaded already fired
+if (document.readyState === 'loading') {
+    // Document still loading
+} else {
+    // Document already loaded
+    if (typeof app === 'undefined') {
+        console.log('📄 Document already loaded, starting Notes Web App...');
+        app = new NotesWebApp();
+    }
+}

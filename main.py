@@ -162,95 +162,103 @@ class NotesApp:
         try:
             print(f"Testing connection to: {self.api_base_url}")
             # Test if server is running with longer timeout and proper headers
-            print("⏳ Please wait - Azure Basic tier should be faster now...")
+            print("⏳ Please wait - testing Azure connection...")
             response = requests.get(
-                f"{self.api_base_url}/api/notes", 
-                timeout=30,  # Reduced timeout for Basic B1 tier
+                f"{self.api_base_url}/health", 
+                timeout=15,  # Reasonable timeout
                 headers={'User-Agent': 'Notes Desktop App'},
                 verify=True  # Verify SSL certificates
             )
-            print(f"API Response: {response.status_code}")
+            print(f"Health Check Response: {response.status_code}")
             
             if response.status_code == 200:
-                self.use_api = True
-                self.status_label.config(text="Connected to server", fg="lightgreen")
-                self.sync_label.config(text="Real-time sync active")
-                print("API connection successful - initializing socket...")
-                
-                # Initialize socket connection
-                self.init_socket_connection()
+                # Test the actual API
+                api_response = requests.get(
+                    f"{self.api_base_url}/api/notes", 
+                    timeout=10,
+                    headers={'User-Agent': 'Notes Desktop App'}
+                )
+                if api_response.status_code == 200:
+                    self.use_api = True
+                    self.status_label.config(text="Connected to Azure cloud ✓", bg="#4CAF50", fg="white")
+                    print("✅ Desktop app connected to cloud database (API mode)")
+                    
+                    # Try to initialize socket connection (don't fail if it doesn't work)
+                    self.init_socket_connection()
+                else:
+                    raise Exception(f"API error: {api_response.status_code}")
             else:
-                print(f"Server returned status code: {response.status_code}")
-                self.use_api = False
-                self.status_label.config(text="Server error - using local database", fg="yellow")
+                raise Exception(f"Health check failed: {response.status_code}")
+                
         except requests.exceptions.Timeout:
-            print("Connection timeout - server is slow or unreachable")
+            print("⏰ Connection timeout - Azure may be cold starting")
             self.use_api = False
-            self.status_label.config(text="Connection timeout - using local database", fg="orange")
+            self.status_label.config(text="Azure timeout - using local storage", bg="orange", fg="white")
         except requests.exceptions.ConnectionError as e:
-            print(f"Connection error: {e}")
+            print(f"🔌 Connection error: {e}")
             self.use_api = False
-            self.status_label.config(text="Connection failed - using local database", fg="orange")
+            self.status_label.config(text="No internet - using local storage", bg="red", fg="white")
         except Exception as e:
             self.use_api = False
-            self.status_label.config(text="Offline - using local database", fg="orange")
-            print(f"API connection failed: {e}")
+            self.status_label.config(text="Azure unavailable - using local storage", bg="red", fg="white")
+            print(f"❌ API connection failed: {e}")
         
-        # Even if socket connection fails, we can still use API
-        if self.use_api:
-            print("✅ Desktop app connected to cloud database (API mode)")
-        else:
-            print("❌ Using local database as fallback")
+        if not self.use_api:
+            print("📱 Using local database as fallback")
+            self.sync_label.config(text="Local mode only")
     
     def init_socket_connection(self):
-        """Initialize WebSocket connection for real-time updates"""
+        """Initialize WebSocket connection for real-time updates (optional)"""
         def connect_socket():
             try:
-                print("Initializing socket connection...")
-                # Configure socket client for HTTPS and better compatibility
+                print("🔗 Attempting WebSocket connection...")
+                # Configure socket client with fallback transports
                 self.socket_client = socketio.Client(
                     logger=False, 
                     engineio_logger=False,
-                    ssl_verify=True  # Verify SSL certificates
+                    ssl_verify=True,
+                    reconnection=True,
+                    reconnection_attempts=3,
+                    reconnection_delay=2
                 )
                 
                 @self.socket_client.event
                 def connect():
-                    print("✅ Connected to WebSocket server")
-                    self.root.after(0, lambda: self.sync_label.config(text="Real-time sync active ✓"))
+                    print("✅ WebSocket connected - real-time sync active!")
+                    self.root.after(0, lambda: self.sync_label.config(text="Real-time sync ✓", bg="#4CAF50", fg="white"))
                 
                 @self.socket_client.event
                 def disconnect():
-                    print("❌ Disconnected from WebSocket server")
-                    self.root.after(0, lambda: self.sync_label.config(text="WebSocket disconnected"))
+                    print("📡 WebSocket disconnected")
+                    self.root.after(0, lambda: self.sync_label.config(text="API sync only", bg="orange", fg="white"))
                 
                 @self.socket_client.event
                 def note_added(data):
-                    print(f"🔄 WebSocket: Note added - {data}")
-                    # Add small delay to ensure database is updated
-                    self.root.after(200, lambda: self.update_queue.put(('refresh', None)))
+                    print(f"🔄 Real-time update: Note added")
+                    self.root.after(100, lambda: self.update_queue.put(('refresh', None)))
                 
                 @self.socket_client.event
                 def note_deleted(data):
-                    print(f"🗑️ WebSocket: Note deleted - {data}")
-                    # Add small delay to ensure database is updated
-                    self.root.after(200, lambda: self.update_queue.put(('refresh', None)))
+                    print(f"🗑️ Real-time update: Note deleted")
+                    self.root.after(100, lambda: self.update_queue.put(('refresh', None)))
                 
                 @self.socket_client.event
                 def connect_error(data):
-                    print(f"❌ WebSocket connection error: {data}")
-                    self.root.after(0, lambda: self.sync_label.config(text="WebSocket connection failed"))
+                    print(f"⚠️  WebSocket error: {data}")
                 
-                # Connect to server with retry logic and longer timeout for Azure
-                print(f"Connecting WebSocket to: {self.api_base_url}")
-                print("⏳ WebSocket connection may take 30-45 seconds on Azure Free Tier...")
-                self.socket_client.connect(self.api_base_url, wait_timeout=60, transports=['websocket', 'polling'])
+                # Try to connect with shorter timeout
+                print("⏳ Connecting WebSocket (may timeout if Azure WebSockets disabled)...")
+                self.socket_client.connect(
+                    self.api_base_url, 
+                    wait_timeout=15,  # Shorter timeout
+                    transports=['websocket', 'polling']
+                )
                 
             except Exception as e:
-                print(f"❌ Socket connection failed: {e}")
-                print("⚠️  Continuing with API-only mode (no real-time sync)")
+                print(f"📡 WebSocket unavailable: {str(e)[:50]}...")
+                print("✅ Continuing with HTTP API sync (works fine without WebSocket)")
                 self.socket_client = None
-                self.root.after(0, lambda: self.sync_label.config(text="API mode (polling)"))
+                self.root.after(0, lambda: self.sync_label.config(text="HTTP sync mode", bg="#2196F3", fg="white"))
         
         # Connect in background thread
         threading.Thread(target=connect_socket, daemon=True).start()

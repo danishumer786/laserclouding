@@ -89,6 +89,12 @@ def index():
     """Serve the main page"""
     return render_template('index.html')
 
+@app.route('/debug')
+def debug():
+    """Serve the debug page"""
+    with open('debug.html', 'r', encoding='utf-8') as f:
+        return f.read()
+
 @app.route('/health')
 def health_check():
     """Health check endpoint to keep the app warm"""
