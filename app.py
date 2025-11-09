@@ -89,6 +89,15 @@ def index():
     """Serve the main page"""
     return render_template('index.html')
 
+@app.route('/health')
+def health_check():
+    """Health check endpoint to keep the app warm"""
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.now().isoformat(),
+        'message': 'Notes app is running'
+    })
+
 @app.route('/api/notes', methods=['GET'])
 def get_notes():
     """API endpoint to get all notes"""

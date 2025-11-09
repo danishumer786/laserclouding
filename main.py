@@ -15,7 +15,7 @@ class NotesApp:
         self.root = root
         self.root.title("Notes Application (Desktop)")
         self.root.geometry("600x550")
-        self.root.configure(bg="#4CAF50")  # Green background to match web app
+        self.root.configure(bg="#FF69B4")  # Pink background
         
         # API Configuration - Updated for cloud deployment
         self.api_base_url = "https://laserclouding-hva2gweudafvadcw.canadacentral-01.azurewebsites.net"
@@ -37,6 +37,10 @@ class NotesApp:
         
         # Start update checker
         self.start_update_checker()
+        
+        # Start keep-warm mechanism if connected to cloud
+        if self.use_api:
+            self.start_keep_warm()
     
     def init_database(self):
         """Initialize SQLite database and create notes table if it doesn't exist"""
@@ -57,7 +61,7 @@ class NotesApp:
     def create_gui(self):
         """Create the main GUI interface"""
         # Main frame
-        main_frame = tk.Frame(self.root, bg="#4CAF50", padx=20, pady=20)
+        main_frame = tk.Frame(self.root, bg="#FF69B4", padx=20, pady=20)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         # Title
@@ -65,13 +69,13 @@ class NotesApp:
             main_frame,
             text="Notes",
             font=("Arial", 24, "bold"),
-            bg="#4CAF50",
+            bg="#FF69B4",
             fg="white"
         )
         title_label.pack(pady=(0, 20))
         
         # Input frame
-        input_frame = tk.Frame(main_frame, bg="#4CAF50")
+        input_frame = tk.Frame(main_frame, bg="#FF69B4")
         input_frame.pack(fill=tk.X, pady=(0, 20))
         
         # Text input area
@@ -104,13 +108,13 @@ class NotesApp:
         add_button.pack(side=tk.RIGHT, padx=(10, 0))
         
         # Notes display area with scrollbar
-        notes_frame = tk.Frame(main_frame, bg="#4CAF50")
+        notes_frame = tk.Frame(main_frame, bg="#FF69B4")
         notes_frame.pack(fill=tk.BOTH, expand=True)
         
         # Create scrollable frame for notes
-        self.canvas = tk.Canvas(notes_frame, bg="#4CAF50", highlightthickness=0)
+        self.canvas = tk.Canvas(notes_frame, bg="#FF69B4", highlightthickness=0)
         scrollbar = ttk.Scrollbar(notes_frame, orient="vertical", command=self.canvas.yview)
-        self.scrollable_frame = tk.Frame(self.canvas, bg="#4CAF50")
+        self.scrollable_frame = tk.Frame(self.canvas, bg="#FF69B4")
         
         self.scrollable_frame.bind(
             "<Configure>",
@@ -128,7 +132,7 @@ class NotesApp:
         self.root.bind_all("<MouseWheel>", self._on_mousewheel)
         
         # Status bar
-        status_frame = tk.Frame(main_frame, bg="#4CAF50")
+        status_frame = tk.Frame(main_frame, bg="#FF69B4")
         status_frame.pack(fill=tk.X, pady=(10, 0))
         
         self.status_label = tk.Label(
@@ -156,55 +160,97 @@ class NotesApp:
     def init_api_connection(self):
         """Initialize connection to the web API server"""
         try:
-            # Test if server is running
-            response = requests.get(f"{self.api_base_url}/api/notes", timeout=3)
+            print(f"Testing connection to: {self.api_base_url}")
+            # Test if server is running with longer timeout and proper headers
+            print("⏳ Please wait - Azure Basic tier should be faster now...")
+            response = requests.get(
+                f"{self.api_base_url}/api/notes", 
+                timeout=30,  # Reduced timeout for Basic B1 tier
+                headers={'User-Agent': 'Notes Desktop App'},
+                verify=True  # Verify SSL certificates
+            )
+            print(f"API Response: {response.status_code}")
+            
             if response.status_code == 200:
                 self.use_api = True
                 self.status_label.config(text="Connected to server", fg="lightgreen")
                 self.sync_label.config(text="Real-time sync active")
+                print("API connection successful - initializing socket...")
                 
                 # Initialize socket connection
                 self.init_socket_connection()
             else:
+                print(f"Server returned status code: {response.status_code}")
                 self.use_api = False
                 self.status_label.config(text="Server error - using local database", fg="yellow")
+        except requests.exceptions.Timeout:
+            print("Connection timeout - server is slow or unreachable")
+            self.use_api = False
+            self.status_label.config(text="Connection timeout - using local database", fg="orange")
+        except requests.exceptions.ConnectionError as e:
+            print(f"Connection error: {e}")
+            self.use_api = False
+            self.status_label.config(text="Connection failed - using local database", fg="orange")
         except Exception as e:
             self.use_api = False
             self.status_label.config(text="Offline - using local database", fg="orange")
             print(f"API connection failed: {e}")
+        
+        # Even if socket connection fails, we can still use API
+        if self.use_api:
+            print("✅ Desktop app connected to cloud database (API mode)")
+        else:
+            print("❌ Using local database as fallback")
     
     def init_socket_connection(self):
         """Initialize WebSocket connection for real-time updates"""
         def connect_socket():
             try:
-                self.socket_client = socketio.Client(logger=False, engineio_logger=False)
+                print("Initializing socket connection...")
+                # Configure socket client for HTTPS and better compatibility
+                self.socket_client = socketio.Client(
+                    logger=False, 
+                    engineio_logger=False,
+                    ssl_verify=True  # Verify SSL certificates
+                )
                 
                 @self.socket_client.event
                 def connect():
-                    print("Connected to WebSocket server")
+                    print("✅ Connected to WebSocket server")
+                    self.root.after(0, lambda: self.sync_label.config(text="Real-time sync active ✓"))
                 
                 @self.socket_client.event
                 def disconnect():
-                    print("Disconnected from WebSocket server")
+                    print("❌ Disconnected from WebSocket server")
+                    self.root.after(0, lambda: self.sync_label.config(text="WebSocket disconnected"))
                 
                 @self.socket_client.event
                 def note_added(data):
-                    print(f"WebSocket: Note added - {data}")
+                    print(f"🔄 WebSocket: Note added - {data}")
                     # Add small delay to ensure database is updated
-                    self.root.after(100, lambda: self.update_queue.put(('refresh', None)))
+                    self.root.after(200, lambda: self.update_queue.put(('refresh', None)))
                 
                 @self.socket_client.event
                 def note_deleted(data):
-                    print(f"WebSocket: Note deleted - {data}")
+                    print(f"🗑️ WebSocket: Note deleted - {data}")
                     # Add small delay to ensure database is updated
-                    self.root.after(100, lambda: self.update_queue.put(('refresh', None)))
+                    self.root.after(200, lambda: self.update_queue.put(('refresh', None)))
                 
-                # Connect to server
-                self.socket_client.connect(self.api_base_url)
+                @self.socket_client.event
+                def connect_error(data):
+                    print(f"❌ WebSocket connection error: {data}")
+                    self.root.after(0, lambda: self.sync_label.config(text="WebSocket connection failed"))
+                
+                # Connect to server with retry logic and longer timeout for Azure
+                print(f"Connecting WebSocket to: {self.api_base_url}")
+                print("⏳ WebSocket connection may take 30-45 seconds on Azure Free Tier...")
+                self.socket_client.connect(self.api_base_url, wait_timeout=60, transports=['websocket', 'polling'])
                 
             except Exception as e:
-                print(f"Socket connection failed: {e}")
+                print(f"❌ Socket connection failed: {e}")
+                print("⚠️  Continuing with API-only mode (no real-time sync)")
                 self.socket_client = None
+                self.root.after(0, lambda: self.sync_label.config(text="API mode (polling)"))
         
         # Connect in background thread
         threading.Thread(target=connect_socket, daemon=True).start()
@@ -225,6 +271,23 @@ class NotesApp:
             self.root.after(100, check_updates)
         
         self.root.after(1000, check_updates)
+    
+    def start_keep_warm(self):
+        """Keep the Azure app warm by pinging it periodically"""
+        def ping_server():
+            try:
+                if self.use_api:
+                    # Ping every 10 minutes to keep Azure warm
+                    requests.get(f"{self.api_base_url}/health", timeout=10)
+                    print("🔥 Sent keep-warm ping to server")
+            except:
+                pass  # Ignore ping failures
+            
+            # Schedule next ping in 10 minutes (600 seconds)
+            self.root.after(600000, ping_server)
+        
+        # Start first ping after 5 minutes
+        self.root.after(300000, ping_server)
     
     def add_note(self):
         """Add a new note via API or database"""
